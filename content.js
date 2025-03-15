@@ -20,25 +20,83 @@ function isElementVisible(element) {
 
 // 处理图片元素
 function processImage(element) {
-  if (element.tagName === 'IMG' && isElementVisible(element)) {
-    const src = element.src || element.dataset.src;
-    if (src) {
-      sendImageToBackground(src);
-    }
-  }
-  // 处理背景图片
-  const style = window.getComputedStyle(element);
-  const backgroundImage = style.backgroundImage;
-  if (backgroundImage && backgroundImage !== 'none') {
-    const matches = backgroundImage.match(/url\(["']?([^"']*)[""]?\)/g);
-    if (matches) {
-      matches.forEach(match => {
-        const url = match.slice(4, -1).replace(/["']/g, '');
-        if (url) {
-          sendImageToBackground(url);
+  try {
+    // 检查常规IMG标签
+    if (element.tagName === 'IMG' && isElementVisible(element)) {
+      const src = element.src || element.dataset.src;
+      if (src && src.trim() !== '' && !src.startsWith('data:image/svg+xml')) {
+        sendImageToBackground(src);
+      }
+      
+      // 检查所有可能包含图片URL的属性
+      const possibleAttributes = [
+        'data-src', 'data-original', 'data-url', 'data-full-url', 
+        'data-lazy-src', 'data-lazy', 'data-original-src', 'data-srcset',
+        'data-source', 'data-high-res-src', 'load-src', 'lazy-src'
+      ];
+      
+      possibleAttributes.forEach(attr => {
+        const attrValue = element.getAttribute(attr);
+        if (attrValue && attrValue.trim() !== '' && 
+            !attrValue.startsWith('data:image/svg+xml') && 
+            (attrValue.match(/\.(jpe?g|png|gif|webp|bmp|svg)($|\?)/i) || 
+             attrValue.includes('image'))) {
+          sendImageToBackground(attrValue);
         }
       });
     }
+    
+    // 检查CANVAS元素
+    if (element.tagName === 'CANVAS' && element.width > 100 && element.height > 100) {
+      try {
+        const dataUrl = element.toDataURL('image/png');
+        if (dataUrl && dataUrl.startsWith('data:image/')) {
+          sendImageToBackground(dataUrl);
+        }
+      } catch (e) {
+        // 忽略跨域Canvas错误
+        console.log('Canvas处理错误 (可忽略, 跨域限制):', e.message);
+      }
+    }
+    
+    // 检查VIDEO元素的poster属性
+    if (element.tagName === 'VIDEO' && element.poster) {
+      sendImageToBackground(element.poster);
+    }
+    
+    // 处理背景图片
+    const style = window.getComputedStyle(element);
+    const backgroundImage = style.backgroundImage;
+    if (backgroundImage && backgroundImage !== 'none') {
+      const matches = backgroundImage.match(/url\(["']?([^"']*)[""]?\)/g);
+      if (matches) {
+        matches.forEach(match => {
+          const url = match.slice(4, -1).replace(/["']/g, '');
+          if (url && url.trim() !== '' && !url.startsWith('data:image/svg+xml')) {
+            sendImageToBackground(url);
+          }
+        });
+      }
+    }
+    
+    // 处理CSS中所有可能的图片属性
+    const cssProps = ['backgroundImage', 'content', 'listStyleImage'];
+    cssProps.forEach(prop => {
+      const value = style[prop];
+      if (value && value !== 'none' && value.includes('url(')) {
+        const matches = value.match(/url\(["']?([^"']*)[""]?\)/g);
+        if (matches) {
+          matches.forEach(match => {
+            const url = match.slice(4, -1).replace(/["']/g, '');
+            if (url && url.trim() !== '' && !url.startsWith('data:image/svg+xml')) {
+              sendImageToBackground(url);
+            }
+          });
+        }
+      }
+    });
+  } catch (error) {
+    console.log('图片处理过程中发生错误 (可忽略):', error.message);
   }
 }
 
@@ -156,7 +214,35 @@ async function downloadImages(urls) {
 
 // 扫描页面中的所有图片
 function scanImages() {
+  console.log('扫描页面中的所有图片，URL:', window.location.href);
   document.querySelectorAll('*').forEach(processImage);
+}
+
+// 添加延迟扫描函数，确保捕获延迟加载的图片
+function scanWithDelay() {
+  // 首次扫描
+  scanImages();
+  
+  // 设置多次延迟扫描以捕获动态加载的内容
+  const delays = [1000, 3000, 5000];
+  delays.forEach(delay => {
+    setTimeout(() => {
+      console.log(`延迟 ${delay}ms 扫描页面`);
+      scanImages();
+    }, delay);
+  });
+  
+  // 每10秒进行一次重新扫描（最多5分钟）
+  let scanCount = 0;
+  const intervalId = setInterval(() => {
+    scanCount++;
+    if (scanCount > 30) { // 5分钟后停止
+      clearInterval(intervalId);
+      return;
+    }
+    console.log('定期重新扫描页面');
+    scanImages();
+  }, 10000);
 }
 
 // 监听DOM变化
@@ -185,15 +271,35 @@ observer.observe(document.body, {
   attributeFilter: ['src', 'style']
 });
 
-// 初始扫描
-scanImages();
+// 执行延迟扫描
+scanWithDelay();
 
 // 监听来自popup和background的消息
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   if (request.type === 'GET_IMAGES') {
     sendResponse(Array.from(discoveredImages));
+  } else if (request.type === 'PING') {
+    // 简单的ping响应，用于检测内容脚本是否已注入
+    console.log('收到PING消息，响应以确认内容脚本已注入');
+    sendResponse({ success: true });
+    return true; // 异步响应
   } else if (request.type === 'PERFORM_DOWNLOAD') {
     console.log('Content script received PERFORM_DOWNLOAD message');
     downloadImages(request.urls);
+    // 返回成功状态，告知background.js下载已处理
+    sendResponse({ success: true });
+    return true; // 异步响应
+  } else if (request.type === 'SCAN_IMAGES') {
+    console.log('重新扫描页面图片...');
+    // 清空已发现的图片集合
+    discoveredImages.clear();
+    // 重新扫描页面
+    scanImages();
+    // 设置延迟扫描，捕获可能的延迟加载图片
+    setTimeout(() => {
+      scanImages();
+      sendResponse({ success: true, count: discoveredImages.size });
+    }, 1000);
+    return true; // 异步响应
   }
 });

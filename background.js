@@ -14,15 +14,49 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   } else if (request.type === 'DOWNLOAD_IMAGES') {
     console.log('Received download request for URLs:', request.urls);
     
+    // 记录下载方式，避免重复下载
+    let downloadStarted = false;
+    
     // 将下载请求发送到内容脚本
     chrome.tabs.query({active: true, currentWindow: true}, function(tabs) {
       if (tabs && tabs.length > 0) {
-        chrome.tabs.sendMessage(tabs[0].id, {
-          type: 'PERFORM_DOWNLOAD',
-          urls: request.urls
-        });
+        try {
+          chrome.tabs.sendMessage(tabs[0].id, {
+            type: 'PERFORM_DOWNLOAD',
+            urls: request.urls
+          }, response => {
+            if (chrome.runtime.lastError) {
+              console.log('发送消息错误 (正常，可忽略):', chrome.runtime.lastError.message);
+              // 只有当内容脚本下载失败时才使用Chrome API下载
+              if (!downloadStarted) {
+                downloadStarted = true;
+                console.log('使用Chrome API下载图片');
+                downloadImagesDirectly(request.urls);
+              }
+            } else if (response && response.success) {
+              // 内容脚本成功处理了下载
+              downloadStarted = true;
+              console.log('内容脚本成功处理了下载请求');
+            } else if (!downloadStarted) {
+              // 内容脚本没有明确成功，但也没有错误，使用Chrome API作为备选
+              downloadStarted = true;
+              console.log('内容脚本未明确响应，使用Chrome API下载');
+              downloadImagesDirectly(request.urls);
+            }
+          });
+        } catch (error) {
+          console.log('发送消息异常，尝试直接下载:', error);
+          if (!downloadStarted) {
+            downloadStarted = true;
+            downloadImagesDirectly(request.urls);
+          }
+        }
       } else {
         console.error('No active tab found for download');
+        if (!downloadStarted) {
+          downloadStarted = true;
+          downloadImagesDirectly(request.urls);
+        }
       }
     });
     sendResponse({ success: true });
@@ -81,6 +115,18 @@ function getFileExtension(url) {
     console.error('获取扩展名错误:', e);
     return '.png';
   }
+}
+
+// 直接使用Chrome API下载图片
+function downloadImagesDirectly(urls) {
+  urls.forEach(url => {
+    const filename = generateRandomFileName(getFileExtension(url));
+    chrome.downloads.download({
+      url: url,
+      filename: filename,
+      saveAs: true
+    });
+  });
 }
 
 // 初始化侧边栏

@@ -64,19 +64,26 @@
       text-align: center;
     }
     .button {
-      background-color: #4CAF50;
+      background: linear-gradient(to bottom, #4CAF50, #3d9140);
       color: white;
       padding: 8px 16px;
       border: none;
-      border-radius: 4px;
+      border-radius: 6px;
       cursor: pointer;
+      box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+      transition: all 0.2s ease;
+      font-weight: 500;
     }
     .button:hover {
-      background-color: #45a049;
+      background: linear-gradient(to bottom, #45a049, #358035);
+      box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+      transform: translateY(-1px);
     }
     .button:disabled {
-      background-color: #cccccc;
+      background: linear-gradient(to bottom, #cccccc, #bbbbbb);
       cursor: not-allowed;
+      box-shadow: none;
+      transform: none;
     }
     .modal {
       display: none;
