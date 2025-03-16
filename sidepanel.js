@@ -430,31 +430,6 @@ function displayImages(filteredImages) {
   
   imageGrid.innerHTML = '';
   
-  // 更新总计数
-  const imageCountEl = document.getElementById('imageCount');
-  if (imageCountEl) {
-    imageCountEl.textContent = allImageData.filter(img => img && img.loaded).length;
-  }
-  
-  // 更新过滤状态
-  const filteredStatusEl = document.querySelector('.filtered-status');
-  const filteredCountEl = document.getElementById('filteredCount');
-  
-  // 检查是否应用了过滤条件
-  const totalImages = allImageData.filter(img => img && img.loaded).length;
-  const isFiltered = filteredImages.length < totalImages;
-  console.log('过滤状态:', isFiltered ? '已应用过滤' : '无过滤', 
-              '总图片:', totalImages, 
-              '过滤后:', filteredImages.length);
-  
-  // 显示或隐藏过滤状态
-  if (isFiltered && filteredStatusEl && filteredCountEl) {
-    filteredStatusEl.style.display = 'inline';
-    filteredCountEl.textContent = filteredImages.length;
-  } else if (filteredStatusEl) {
-    filteredStatusEl.style.display = 'none';
-  }
-  
   if (filteredImages.length === 0) {
     imageGrid.innerHTML = '<div style="text-align: center; padding: 20px;">没有符合条件的图片</div>';
     return;
@@ -535,7 +510,7 @@ function displayImages(filteredImages) {
     imageGrid.appendChild(card);
   });
   
-  // 在所有图片卡片添加到DOM后更新下载按钮文本
+  // 在所有图片卡片添加到DOM后更新下载按钮文本和选中计数
   console.log('图片网格渲染完成，更新下载按钮文本');
   updateDownloadButtonText();
 }
@@ -578,31 +553,22 @@ function downloadSelectedImages() {
 }
 
 // 选择/取消选择所有图片
-function toggleSelectAll(selectAll = null) {
+function toggleSelectAll() {
   const checkboxes = document.querySelectorAll('.card-checkbox');
+  const selectAllBtn = document.getElementById('selectAllBtn');
   
-  // 如果明确指定了selectAll参数，则使用它
-  // 否则，根据当前是否有未选中的复选框来决定操作
-  const setChecked = selectAll !== null ? 
-    selectAll : 
-    Array.from(checkboxes).some(checkbox => !checkbox.checked);
+  // 检查当前是否所有图片都被选中
+  const allSelected = Array.from(checkboxes).every(checkbox => checkbox.checked);
   
+  // 根据当前状态切换选择
   checkboxes.forEach(checkbox => {
-    checkbox.checked = setChecked;
+    checkbox.checked = !allSelected;
   });
   
-  // 更新下载按钮文本
-  updateDownloadButtonText();
-}
-
-// 取消选择所有图片
-function deselectAll() {
-  const checkboxes = document.querySelectorAll('.card-checkbox');
-  checkboxes.forEach(checkbox => {
-    checkbox.checked = false;
-  });
+  // 更新按钮文本
+  selectAllBtn.textContent = allSelected ? '全选' : '取消全选';
   
-  // 更新下载按钮文本
+  // 更新下载按钮状态
   updateDownloadButtonText();
 }
 
@@ -741,6 +707,224 @@ async function fetchAndProcessImages() {
     imageGrid.innerHTML = '<div style="text-align: center; padding: 20px; color: red;">加载图片失败，请刷新页面</div>';
   }
 }
+
+// 向background脚本注册侧边栏
+chrome.runtime.sendMessage({ type: 'REGISTER_SIDE_PANEL' });
+
+// 监听标签页切换事件
+chrome.tabs.onActivated.addListener((activeInfo) => {
+  console.log('标签页切换，新的活动标签页ID:', activeInfo.tabId);
+  // 当标签页切换时，自动刷新侧边栏内容
+  setTimeout(() => {
+    fetchAndProcessImages();
+  }, 500); // 延迟500ms，确保内容脚本已加载
+});
+
+// 监听标签页更新事件
+chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
+  if (changeInfo.status === 'complete' && tab.active) {
+    console.log('当前标签页已完成加载:', tab.url);
+    // 当标签页加载完成时，自动刷新侧边栏内容
+    setTimeout(() => {
+      fetchAndProcessImages();
+    }, 500); // 延迟500ms，确保内容脚本已加载
+  }
+});
+
+// 初始化UI元素和事件监听
+function initializeUI() {
+  console.log('初始化UI元素和事件监听器');
+  
+  // 获取按钮元素
+  const refreshBtn = document.getElementById('refreshBtn');
+  const selectAllBtn = document.getElementById('selectAllBtn');
+  const downloadBtn = document.getElementById('downloadBtn');
+  const ratioSlider = document.getElementById('ratioSlider');
+  const minSizeSlider = document.getElementById('minSizeSlider');
+  
+  // 添加事件监听器
+  if (downloadBtn) {
+    downloadBtn.addEventListener('click', downloadSelectedImages);
+  }
+
+  // 全选/取消全选按钮事件
+  if (selectAllBtn) {
+    selectAllBtn.addEventListener('click', toggleSelectAll);
+  }
+  
+  // 刷新按钮事件
+  if (refreshBtn) {
+    refreshBtn.addEventListener('click', async () => {
+      console.log('刷新图片');
+      
+      // 显示加载中状态
+      const imageGrid = document.getElementById('imageGrid');
+      const statusEl = document.querySelector('.status');
+      if (statusEl) {
+        statusEl.textContent = '正在刷新图片...';
+      }
+      if (imageGrid) {
+        imageGrid.innerHTML = '<div style="text-align: center; padding: 20px;">正在刷新图片...</div>';
+      }
+      
+      // 清空后台存储的图片
+      await new Promise(resolve => {
+        chrome.runtime.sendMessage({ type: 'CLEAR_IMAGES' }, () => {
+          console.log('已清空后台图片缓存');
+          resolve();
+        });
+      });
+      
+      // 触发当前标签页重新扫描图片
+      try {
+        const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+        if (tab && tab.id) {
+          console.log('尝试与标签页通信，标签页ID:', tab.id, '，URL:', tab.url);
+          
+          // 检查内容脚本是否已注入
+          try {
+            await new Promise((resolve, reject) => {
+              // 先尝试发送一个简单的ping消息检查内容脚本是否已注入
+              chrome.tabs.sendMessage(tab.id, { type: 'PING' }, response => {
+                if (chrome.runtime.lastError) {
+                  console.log('内容脚本未注入或无法通信:', chrome.runtime.lastError.message);
+                  // 尝试注入内容脚本
+                  chrome.scripting.executeScript({
+                    target: { tabId: tab.id },
+                    files: ['content.js']
+                  }).then(() => {
+                    console.log('内容脚本已注入');
+                    resolve();
+                  }).catch(err => {
+                    console.error('注入内容脚本失败:', err);
+                    resolve(); // 即使失败也继续
+                  });
+                } else {
+                  console.log('内容脚本已存在，继续扫描');
+                  resolve();
+                }
+              });
+            });
+            
+            // 发送扫描命令
+            await new Promise(resolve => {
+              chrome.tabs.sendMessage(tab.id, { type: 'SCAN_IMAGES' }, (response) => {
+                if (chrome.runtime.lastError) {
+                  console.log('触发扫描图片时出错 (可忽略):', chrome.runtime.lastError.message);
+                } else {
+                  console.log('页面重新扫描图片完成:', response);
+                }
+                resolve();
+              });
+            });
+          } catch (err) {
+            console.error('与内容脚本通信出错:', err);
+          }
+        } else {
+          console.warn('未找到活动标签页');
+        }
+      } catch (error) {
+        console.error('触发页面扫描图片时出错:', error);
+      }
+      
+      // 重新获取和处理图片
+      await fetchAndProcessImages();
+    });
+  }
+  
+  // 监听图片网格中的复选框变化
+  document.addEventListener('change', (event) => {
+    if (event.target.classList.contains('card-checkbox')) {
+      console.log('捕获到复选框change事件通过事件委托');
+      updateDownloadButtonText();
+    }
+  });
+  
+  // 初始化滑块标签
+  updateSliderLabels();
+  
+  // 滑块事件
+  if (minSizeSlider) {
+    minSizeSlider.addEventListener('input', updateSizeFilter);
+  }
+  
+  if (ratioSlider) {
+    ratioSlider.addEventListener('input', updateSliderLabels);
+  }
+  
+  // 初始化下载按钮文本
+  console.log('初始化下载按钮文本');
+  updateDownloadButtonText();
+  
+  // 排序按钮和下拉菜单事件
+  const sortBtn = document.getElementById('sortBtn');
+  const sortDropdown = document.querySelector('.sort-dropdown');
+  const sortItems = document.querySelectorAll('.sort-item');
+  
+  if (sortBtn && sortDropdown) {
+    // 默认初始化按钮属性为面积从大到小
+    sortBtn.setAttribute('data-sort', 'area-desc');
+    document.getElementById('currentSortText').textContent = '面积从大到小';
+    
+    // 鼠标悬停显示下拉菜单
+    sortDropdown.addEventListener('mouseenter', () => {
+      document.querySelector('.sort-dropdown-content').classList.add('show');
+    });
+    
+    // 鼠标离开隐藏下拉菜单
+    sortDropdown.addEventListener('mouseleave', () => {
+      document.querySelector('.sort-dropdown-content').classList.remove('show');
+    });
+    
+    // 为每个排序选项添加点击事件
+    sortItems.forEach(item => {
+      item.addEventListener('click', () => {
+        const value = item.getAttribute('data-value');
+        const text = item.textContent;
+        
+        // 更新按钮文本和数据属性
+        document.getElementById('currentSortText').textContent = text;
+        sortBtn.setAttribute('data-sort', value);
+        
+        // 应用排序
+        applyFiltersAndSort();
+        
+        // 隐藏下拉菜单
+        document.querySelector('.sort-dropdown-content').classList.remove('show');
+      });
+    });
+  }
+  
+  // 模态框关闭按钮事件
+  const closeBtn = document.querySelector('.close-btn');
+  if (closeBtn) {
+    closeBtn.addEventListener('click', () => {
+      const imageModal = document.getElementById('imageModal');
+      if (imageModal) {
+        imageModal.classList.remove('active');
+      }
+    });
+  }
+  
+  // 为ESC按键添加关闭模态框的事件监听
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') {
+      const imageModal = document.getElementById('imageModal');
+      if (imageModal) {
+        imageModal.classList.remove('active');
+      }
+    }
+  });
+  
+  // 初始化加载图片
+  fetchAndProcessImages();
+}
+
+// 当DOM加载完成时初始化UI
+document.addEventListener('DOMContentLoaded', () => {
+  console.log('DOM加载完成，开始初始化UI');
+  initializeUI();
+});
 
 // 根据URL检测图片格式
 function detectImageFormat(url) {
@@ -993,6 +1177,12 @@ function applyFiltersAndSort() {
       filteredStatusEl.style.display = 'none';
     }
     
+    // 更新状态显示
+    const statusEl = document.querySelector('.status');
+    if (statusEl) {
+      statusEl.textContent = `已发现 ${filteredImages.length}/${totalImages} 张图片`;
+    }
+
     // 更新图片网格
     displayImages(filteredImages);
   } catch (error) {
@@ -1030,7 +1220,6 @@ document.addEventListener('DOMContentLoaded', () => {
   // 获取按钮元素
   const refreshBtn = document.getElementById('refreshBtn');
   const selectAllBtn = document.getElementById('selectAllBtn');
-  const deselectAllBtn = document.getElementById('deselectAllBtn');
   const downloadBtn = document.getElementById('downloadBtn');
   const ratioSlider = document.getElementById('ratioSlider');
   const minSizeSlider = document.getElementById('minSizeSlider');
@@ -1040,98 +1229,9 @@ document.addEventListener('DOMContentLoaded', () => {
     downloadBtn.addEventListener('click', downloadSelectedImages);
   }
 
-  // 刷新按钮事件
-  if (refreshBtn) {
-    refreshBtn.addEventListener('click', async () => {
-      console.log('刷新图片');
-      
-      // 显示加载中状态
-      const imageGrid = document.getElementById('imageGrid');
-      const statusEl = document.querySelector('.status');
-      if (statusEl) {
-        statusEl.textContent = '正在刷新图片...';
-      }
-      if (imageGrid) {
-        imageGrid.innerHTML = '<div style="text-align: center; padding: 20px;">正在刷新图片...</div>';
-      }
-      
-      // 清空后台存储的图片
-      await new Promise(resolve => {
-        chrome.runtime.sendMessage({ type: 'CLEAR_IMAGES' }, () => {
-          console.log('已清空后台图片缓存');
-          resolve();
-        });
-      });
-      
-      // 触发当前标签页重新扫描图片
-      try {
-        const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-        if (tab && tab.id) {
-          console.log('尝试与标签页通信，标签页ID:', tab.id, '，URL:', tab.url);
-          
-          // 检查内容脚本是否已注入
-          try {
-            await new Promise((resolve, reject) => {
-              // 先尝试发送一个简单的ping消息检查内容脚本是否已注入
-              chrome.tabs.sendMessage(tab.id, { type: 'PING' }, response => {
-                if (chrome.runtime.lastError) {
-                  console.log('内容脚本未注入或无法通信:', chrome.runtime.lastError.message);
-                  // 尝试注入内容脚本
-                  chrome.scripting.executeScript({
-                    target: { tabId: tab.id },
-                    files: ['content.js']
-                  }).then(() => {
-                    console.log('内容脚本已注入');
-                    resolve();
-                  }).catch(err => {
-                    console.error('注入内容脚本失败:', err);
-                    resolve(); // 即使失败也继续
-                  });
-                } else {
-                  console.log('内容脚本已存在，继续扫描');
-                  resolve();
-                }
-              });
-            });
-            
-            // 发送扫描命令
-            await new Promise(resolve => {
-              chrome.tabs.sendMessage(tab.id, { type: 'SCAN_IMAGES' }, (response) => {
-                if (chrome.runtime.lastError) {
-                  console.log('触发扫描图片时出错 (可忽略):', chrome.runtime.lastError.message);
-                } else {
-                  console.log('页面重新扫描图片完成:', response);
-                }
-                resolve();
-              });
-            });
-          } catch (err) {
-            console.error('与内容脚本通信出错:', err);
-          }
-        } else {
-          console.warn('未找到活动标签页');
-        }
-      } catch (error) {
-        console.error('触发页面扫描图片时出错:', error);
-      }
-      
-      // 重新获取和处理图片
-      await fetchAndProcessImages();
-    });
-  }
-  
+  // 全选/取消全选按钮事件
   if (selectAllBtn) {
-    selectAllBtn.addEventListener('click', () => {
-      toggleSelectAll(true);
-      updateDownloadButtonText();
-    });
-  }
-  
-  if (deselectAllBtn) {
-    deselectAllBtn.addEventListener('click', () => {
-      deselectAll();
-      updateDownloadButtonText();
-    });
+    selectAllBtn.addEventListener('click', toggleSelectAll);
   }
   
   // 监听图片网格中的复选框变化
@@ -1233,19 +1333,10 @@ document.addEventListener('DOMContentLoaded', () => {
 // 更新下载按钮文本，显示选中的图片数量
 function updateDownloadButtonText() {
   const downloadBtn = document.getElementById('downloadBtn');
-  if (!downloadBtn) {
-    console.warn('无法找到下载按钮元素');
-    return;
-  }
-  
   const checkboxes = document.querySelectorAll('.card-checkbox:checked');
-  const selectedCount = checkboxes.length;
   
-  console.log('更新下载按钮文本，选中数量:', selectedCount);
-  
-  if (selectedCount === 0) {
-    downloadBtn.textContent = '下载选中';
-  } else {
-    downloadBtn.textContent = `下载选中 (${selectedCount})`;
+  if (downloadBtn) {
+    downloadBtn.textContent = `下载选中图片 (${checkboxes.length})`;
+    downloadBtn.disabled = checkboxes.length === 0;
   }
 }
