@@ -1,13 +1,41 @@
 // 存储已发现的图片URL
 let discoveredImages = new Set();
 
+// 规范化微信图片URL
+function normalizeWechatImageUrl(url) {
+  try {
+    if (!url) return '';
+    
+    // 处理微信图片URL
+    if (url.includes('mmbiz.qpic.cn') || url.includes('mmsns.qpic.cn')) {
+      // 提取基础URL（移除所有参数）
+      let baseUrl = url.split('?')[0];
+      
+      // 清理URL中的数字参数（通常是尺寸相关）
+      baseUrl = baseUrl.replace(/\d+$/, '');
+      
+      return baseUrl;
+    }
+    return url;
+  } catch (error) {
+    console.error('规范化URL出错:', error);
+    return url;
+  }
+}
+
 // 发送图片URL到后台脚本
 function sendImageToBackground(imageUrl) {
-  if (!discoveredImages.has(imageUrl)) {
-    discoveredImages.add(imageUrl);
+  // 规范化URL
+  const normalizedUrl = normalizeWechatImageUrl(imageUrl);
+  
+  // 使用规范化后的URL进行去重
+  if (!discoveredImages.has(normalizedUrl)) {
+    console.log('发现新图片:', imageUrl, '规范化后:', normalizedUrl);
+    discoveredImages.add(normalizedUrl);
     chrome.runtime.sendMessage({
       type: 'NEW_IMAGE',
-      url: imageUrl
+      url: imageUrl,
+      normalizedUrl: normalizedUrl
     });
   }
 }
@@ -25,12 +53,14 @@ function processImage(element) {
     if (element.tagName === 'IMG' && isElementVisible(element)) {
       const src = element.src || element.dataset.src;
       if (src && src.trim() !== '' && !src.startsWith('data:image/svg+xml')) {
-        sendImageToBackground(src);
+        // 只处理微信图片
+        if (src.includes('mmbiz.qpic.cn') || src.includes('mmsns.qpic.cn')) {
+          sendImageToBackground(src);
+        }
       }
       
       // 检查所有可能包含图片URL的属性
-      const possibleAttributes = [
-        'data-src', 'data-original', 'data-url', 'data-full-url', 
+      const possibleAttributes = ['data-src', 'data-original', 'data-url', 'data-full-url', 
         'data-lazy-src', 'data-lazy', 'data-original-src', 'data-srcset',
         'data-source', 'data-high-res-src', 'load-src', 'lazy-src'
       ];
@@ -39,8 +69,7 @@ function processImage(element) {
         const attrValue = element.getAttribute(attr);
         if (attrValue && attrValue.trim() !== '' && 
             !attrValue.startsWith('data:image/svg+xml') && 
-            (attrValue.match(/\.(jpe?g|png|gif|webp|bmp|svg)($|\?)/i) || 
-             attrValue.includes('image'))) {
+            (attrValue.includes('mmbiz.qpic.cn') || attrValue.includes('mmsns.qpic.cn'))) {
           sendImageToBackground(attrValue);
         }
       });

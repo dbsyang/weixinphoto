@@ -1,5 +1,159 @@
 // 存储所有图片数据
 let allImageData = [];
+let isProcessing = false; // 添加处理状态标志
+let processingTimeout = null; // 用于防抖的timeout
+
+// 防抖函数
+function debounce(func, wait) {
+  return function executedFunction(...args) {
+    const later = () => {
+      clearTimeout(processingTimeout);
+      func(...args);
+    };
+    clearTimeout(processingTimeout);
+    processingTimeout = setTimeout(later, wait);
+  };
+}
+
+// 初始化加载图片
+async function fetchAndProcessImages() {
+  // 如果正在处理中，直接返回
+  if (isProcessing) {
+    console.log('图片正在处理中，跳过重复请求');
+    return;
+  }
+  
+  const imageGrid = document.getElementById('imageGrid');
+  if (!imageGrid) return;
+  
+  isProcessing = true; // 设置处理标志
+  
+  try {
+    imageGrid.innerHTML = '';
+    
+    // 显示加载指示器
+    const statusEl = document.querySelector('.status');
+    if (statusEl) {
+      statusEl.textContent = '正在获取图片...';
+    }
+    imageGrid.innerHTML = '<div style="text-align: center; padding: 20px;">正在加载图片...</div>';
+    
+    // 先清空后台存储的图片
+    await new Promise(resolve => {
+      chrome.runtime.sendMessage({ type: 'CLEAR_IMAGES' }, () => {
+        console.log('已清空后台图片缓存');
+        resolve();
+      });
+    });
+
+    // 只从当前页面获取图片
+    const tabImages = await getCurrentTabImages();
+    
+    // 使用规范化的URL进行去重，并保留最高质量的格式
+    const normalizedUrls = new Map(); // 使用Map存储baseUrl到最佳URL的映射
+    
+    // 处理并记录所有图片URL
+    console.log('开始处理图片URL...');
+    tabImages.forEach(url => {
+      if (!url || typeof url !== 'string') return; // 跳过无效URL
+      
+      // 只处理微信图片
+      if (!url.includes('mmbiz.qpic.cn') && !url.includes('mmsns.qpic.cn')) return;
+      
+      const normalized = normalizeWechatImageUrl(url);
+      if (!normalized.baseUrl) return; // 跳过无效的规范化结果
+      
+      const existing = normalizedUrls.get(normalized.baseUrl);
+      
+      // 如果这个baseUrl还没有对应的URL，或者当前URL的格式优先级更高
+      if (!existing || normalized.priority > existing.priority) {
+        console.log(`处理图片URL: ${url} -> 基础URL: ${normalized.baseUrl}, 格式: ${normalized.format}, 优先级: ${normalized.priority}`);
+        normalizedUrls.set(normalized.baseUrl, normalized);
+      }
+    });
+    
+    // 使用最佳格式的原始URL
+    const uniqueImageUrls = Array.from(normalizedUrls.values())
+      .filter(item => item && item.originalUrl) // 确保所有项都有效
+      .map(item => item.originalUrl);
+    
+    console.log('找到唯一图片URL:', uniqueImageUrls.length);
+    
+    if (uniqueImageUrls.length === 0) {
+      if (statusEl) {
+        statusEl.textContent = '未找到图片';
+      }
+      imageGrid.innerHTML = '<div style="text-align: center; padding: 20px;">未找到图片</div>';
+      return;
+    }
+    
+    // 获取所有图片的尺寸信息
+    allImageData = []; // 清空旧数据
+    let validImageCount = 0; // 跟踪有效图片数量
+        
+    // 分批处理图片，避免一次性加载过多
+    const batchSize = 5;
+    let processedCount = 0;
+    
+    for (let i = 0; i < uniqueImageUrls.length; i += batchSize) {
+      const batch = uniqueImageUrls.slice(i, i + batchSize);
+      const batchResults = await Promise.all(batch.map(url => getImageDimensions(url)));
+      
+      // 过滤掉无效的结果（null或未加载成功的）
+      const validResults = batchResults.filter(result => result !== null);
+      allImageData.push(...validResults);
+      validImageCount = allImageData.length; // 使用实际的数组长度
+      processedCount += batch.length;
+      
+      // 更新加载提示
+      if (statusEl) {
+        statusEl.textContent = `正在分析图片 (${processedCount}/${uniqueImageUrls.length})`;
+      }
+    }
+    
+    console.log('图片分析完成，有效图片数量:', validImageCount);
+    
+    // 更新状态信息
+    if (statusEl) {
+      statusEl.textContent = `已找到 ${validImageCount} 张有效图片`;
+    }
+    
+    // 更新计数器
+    const imageCountEl = document.getElementById('imageCount');
+    if (imageCountEl) {
+      imageCountEl.textContent = validImageCount;
+    }
+    
+    // 应用排序和过滤
+    applyFiltersAndSort();
+    
+  } catch (error) {
+    console.error('更新图片网格时出错:', error);
+    if (statusEl) {
+      statusEl.textContent = '获取图片时出错: ' + error.message;
+    }
+    imageGrid.innerHTML = '<div style="text-align: center; padding: 20px; color: red;">加载图片失败，请刷新页面</div>';
+  } finally {
+    isProcessing = false; // 重置处理标志
+  }
+}
+
+// 创建防抖版本的fetchAndProcessImages
+const debouncedFetchAndProcessImages = debounce(fetchAndProcessImages, 1000);
+
+// 监听标签页切换事件
+chrome.tabs.onActivated.addListener((activeInfo) => {
+  console.log('标签页切换，新的活动标签页ID:', activeInfo.tabId);
+  debouncedFetchAndProcessImages();
+});
+
+// 监听标签页更新事件
+chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
+  if (changeInfo.status === 'complete' && tab.active) {
+    console.log('当前标签页已完成加载:', tab.url);
+    debouncedFetchAndProcessImages();
+  }
+});
 
 // 滑块值映射
 const sizeSliderMap = {
@@ -39,20 +193,6 @@ async function getCurrentTabImages() {
     console.error('获取标签页图片错误:', error);
     return [];
   }
-}
-
-// 从后台脚本获取所有图片
-async function getAllImages() {
-  return new Promise((resolve) => {
-    chrome.runtime.sendMessage({ type: 'GET_ALL_IMAGES' }, (images) => {
-      if (chrome.runtime.lastError) {
-        console.log('从后台获取图片错误 (可忽略):', chrome.runtime.lastError.message);
-        resolve([]);
-      } else {
-        resolve(images || []);
-      }
-    });
-  });
 }
 
 // 计算排序值
@@ -240,27 +380,50 @@ function detectImageFormat(url) {
 
 // 加载图片获取尺寸
 function loadImageAndGetDimensions(url, format, resolve) {
+  // 处理微信图片URL
+  const isWechatImage = url.includes('mmbiz.qpic.cn') || url.includes('mmsns.qpic.cn');
+  
   const img = new Image();
+  let timeoutId;
+  
+  const cleanup = () => {
+    if (timeoutId) {
+      clearTimeout(timeoutId);
+    }
+    img.onload = null;
+    img.onerror = null;
+  };
+  
   img.onload = () => {
-    resolve({
-      url: url,
-      width: img.naturalWidth,
-      height: img.naturalHeight,
-      ratio: img.naturalWidth / img.naturalHeight,
-      format: format,
-      loaded: true
-    });
+    cleanup();
+    // 确保图片实际加载成功且有有效尺寸
+    if (img.naturalWidth > 0 && img.naturalHeight > 0) {
+      resolve({
+        url: url,
+        width: img.naturalWidth,
+        height: img.naturalHeight,
+        ratio: img.naturalWidth / img.naturalHeight,
+        format: format,
+        loaded: true,
+        isWechat: isWechatImage
+      });
+    } else {
+      resolve(null); // 返回null表示无效图片
+    }
   };
+  
   img.onerror = () => {
-    resolve({
-      url: url,
-      width: 0,
-      height: 0,
-      ratio: 1,
-      format: 'unknown',
-      loaded: false
-    });
+    cleanup();
+    resolve(null); // 返回null表示加载失败
   };
+  
+  // 设置3秒超时
+  timeoutId = setTimeout(() => {
+    cleanup();
+    resolve(null); // 超时返回null
+  }, 3000);
+  
+  // 直接使用原始URL，不添加时间戳
   img.src = url;
 }
 
@@ -342,11 +505,11 @@ function updateImageGrid() {
   
   // 安全获取值
   if (minSizeSlider) {
-    minWidth = parseInt(minSizeSlider.value) || 0;
+    minWidth = parseInt(minSizeSlider.value || 0);
   }
   
   if (maxSizeSlider) {
-    maxWidth = parseInt(maxSizeSlider.value) || 10000;
+    maxWidth = parseInt(maxSizeSlider.value || 10000);
   }
   
   if (ratioSlider) {
@@ -629,83 +792,63 @@ function handleEscKeydown(event) {
   }
 }
 
-// 初始化加载图片
-async function fetchAndProcessImages() {
-  const imageGrid = document.getElementById('imageGrid');
-  if (!imageGrid) return;
-  
-  imageGrid.innerHTML = '';
-  
-  // 显示加载指示器
-  const statusEl = document.querySelector('.status');
-  if (statusEl) {
-    statusEl.textContent = '正在获取图片...';
-  }
-  imageGrid.innerHTML = '<div style="text-align: center; padding: 20px;">正在加载图片...</div>';
-  
+// 规范化微信图片URL，去除尺寸参数等
+function normalizeWechatImageUrl(url) {
   try {
-    // 获取所有图片URL
-    const tabImages = await getCurrentTabImages();
-    const allImages = await getAllImages();
-    const uniqueImageUrls = [...new Set([...tabImages, ...allImages])];
+    if (!url) return '';
     
-    console.log('找到图片URL:', uniqueImageUrls.length);
-    
-    if (uniqueImageUrls.length === 0) {
-      if (statusEl) {
-        statusEl.textContent = '未找到图片';
-      }
-      imageGrid.innerHTML = '<div style="text-align: center; padding: 20px;">未找到图片</div>';
-      return;
-    }
-    
-    // 获取所有图片的尺寸信息
-    allImageData = []; // 清空旧数据
-    
-    // 加载中提示更新
-    imageGrid.innerHTML = '<div style="text-align: center; padding: 20px;">正在分析图片尺寸 (0/' + uniqueImageUrls.length + ')...</div>';
-    
-    // 分批处理图片，避免一次性加载过多
-    const batchSize = 5;
-    let loadedCount = 0;
-    
-    for (let i = 0; i < uniqueImageUrls.length; i += batchSize) {
-      const batch = uniqueImageUrls.slice(i, i + batchSize);
-      const batchResults = await Promise.all(batch.map(url => getImageDimensions(url)));
+    // 处理微信图片URL
+    if (url.includes('mmbiz.qpic.cn') || url.includes('mmsns.qpic.cn')) {
+      // 提取基础URL（移除所有参数）
+      let baseUrl = url.split('?')[0];
       
-      allImageData.push(...batchResults);
-      loadedCount += batchResults.length;
+      // 提取wx_fmt参数（如果存在）
+      const params = new URLSearchParams(url.includes('?') ? url.split('?')[1] : '');
+      const format = params.get('wx_fmt');
       
-      // 更新加载提示
-      if (i + batchSize < uniqueImageUrls.length) {
-        imageGrid.innerHTML = '<div style="text-align: center; padding: 20px;">正在分析图片尺寸 (' + 
-          loadedCount + '/' + uniqueImageUrls.length + ')...</div>';
-      }
+      // 清理URL中的数字参数（通常是尺寸相关）
+      baseUrl = baseUrl.replace(/\d+$/, '');
+      
+      return {
+        baseUrl,
+        format,
+        originalUrl: url,
+        priority: getFormatPriority(url)
+      };
     }
-    
-    console.log('图片分析完成:', allImageData.length);
-    
-    // 更新状态信息
-    if (statusEl) {
-      statusEl.textContent = `已找到 ${allImageData.length} 张图片`;
-    }
-    
-    // 更新计数器
-    const imageCountEl = document.getElementById('imageCount');
-    if (imageCountEl) {
-      imageCountEl.textContent = allImageData.length;
-    }
-    
-    // 应用排序和过滤
-    applyFiltersAndSort();
-    
+    return {
+      baseUrl: url,
+      format: null,
+      originalUrl: url,
+      priority: 0
+    };
   } catch (error) {
-    console.error('更新图片网格时出错:', error);
-    if (statusEl) {
-      statusEl.textContent = '获取图片时出错: ' + error.message;
-    }
-    imageGrid.innerHTML = '<div style="text-align: center; padding: 20px; color: red;">加载图片失败，请刷新页面</div>';
+    console.error('规范化URL出错:', error);
+    return {
+      baseUrl: url,
+      format: null,
+      originalUrl: url,
+      priority: 0
+    };
   }
+}
+
+// 获取图片格式的优先级分数
+function getFormatPriority(url) {
+  // 从URL中提取wx_fmt参数
+  const match = url.match(/wx_fmt=([^&]+)/);
+  const format = match ? match[1].toLowerCase() : '';
+  
+  // 格式优先级（分数越高越优先）
+  const priorities = {
+    'png': 100,    // 无损格式，通常质量最好
+    'webp': 90,    // 新一代格式，压缩效果好
+    'jpeg': 80,    // 标准格式
+    'jpg': 80,     // 等同于jpeg
+    'gif': 70      // 动图格式
+  };
+  
+  return priorities[format] || 0;
 }
 
 // 向background脚本注册侧边栏
@@ -783,8 +926,8 @@ function initializeUI() {
           
           // 检查内容脚本是否已注入
           try {
+            // 先尝试发送一个简单的ping消息检查内容脚本是否已注入
             await new Promise((resolve, reject) => {
-              // 先尝试发送一个简单的ping消息检查内容脚本是否已注入
               chrome.tabs.sendMessage(tab.id, { type: 'PING' }, response => {
                 if (chrome.runtime.lastError) {
                   console.log('内容脚本未注入或无法通信:', chrome.runtime.lastError.message);
@@ -985,27 +1128,50 @@ function detectImageFormat(url) {
 
 // 加载图片获取尺寸
 function loadImageAndGetDimensions(url, format, resolve) {
+  // 处理微信图片URL
+  const isWechatImage = url.includes('mmbiz.qpic.cn') || url.includes('mmsns.qpic.cn');
+  
   const img = new Image();
+  let timeoutId;
+  
+  const cleanup = () => {
+    if (timeoutId) {
+      clearTimeout(timeoutId);
+    }
+    img.onload = null;
+    img.onerror = null;
+  };
+  
   img.onload = () => {
-    resolve({
-      url: url,
-      width: img.naturalWidth,
-      height: img.naturalHeight,
-      ratio: img.naturalWidth / img.naturalHeight,
-      format: format,
-      loaded: true
-    });
+    cleanup();
+    // 确保图片实际加载成功且有有效尺寸
+    if (img.naturalWidth > 0 && img.naturalHeight > 0) {
+      resolve({
+        url: url,
+        width: img.naturalWidth,
+        height: img.naturalHeight,
+        ratio: img.naturalWidth / img.naturalHeight,
+        format: format,
+        loaded: true,
+        isWechat: isWechatImage
+      });
+    } else {
+      resolve(null); // 返回null表示无效图片
+    }
   };
+  
   img.onerror = () => {
-    resolve({
-      url: url,
-      width: 0,
-      height: 0,
-      ratio: 1,
-      format: 'unknown',
-      loaded: false
-    });
+    cleanup();
+    resolve(null); // 返回null表示加载失败
   };
+  
+  // 设置3秒超时
+  timeoutId = setTimeout(() => {
+    cleanup();
+    resolve(null); // 超时返回null
+  }, 3000);
+  
+  // 直接使用原始URL，不添加时间戳
   img.src = url;
 }
 

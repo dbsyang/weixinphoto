@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "网图下载助手",
-  "version": "3.1.1",
+  "version": "3.3.1",
   "description": "一键下载网页中的所有图片，支持动态加载的图片资源",
   "permissions": [
     "activeTab",
