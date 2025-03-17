@@ -18,7 +18,6 @@ function normalizeWechatImageUrl(url) {
     }
     return url;
   } catch (error) {
-    console.error('规范化URL出错:', error);
     return url;
   }
 }
@@ -30,7 +29,6 @@ function sendImageToBackground(imageUrl) {
   
   // 使用规范化后的URL进行去重
   if (!discoveredImages.has(normalizedUrl)) {
-    console.log('发现新图片:', imageUrl, '规范化后:', normalizedUrl);
     discoveredImages.add(normalizedUrl);
     chrome.runtime.sendMessage({
       type: 'NEW_IMAGE',
@@ -84,7 +82,6 @@ function processImage(element) {
         }
       } catch (e) {
         // 忽略跨域Canvas错误
-        console.log('Canvas处理错误 (可忽略, 跨域限制):', e.message);
       }
     }
     
@@ -125,7 +122,6 @@ function processImage(element) {
       }
     });
   } catch (error) {
-    console.log('图片处理过程中发生错误 (可忽略):', error.message);
   }
 }
 
@@ -140,34 +136,28 @@ function generateRandomFileName(extension) {
   const timestamp = Date.now();
   
   const filename = `${adjective}_${noun}_${randomNum}_${timestamp}${extension}`;
-  console.log('Generated filename:', filename);
   return filename;
 }
 
 // 获取文件扩展名
 function getFileExtension(url) {
   try {
-    console.log('Getting extension for URL:', url);
     const urlObj = new URL(url);
     
     if (url.includes('mmbiz.qpic.cn')) {
       const wxFmt = urlObj.searchParams.get('wx_fmt');
       if (wxFmt) {
-        console.log('Found wx_fmt extension:', wxFmt);
         return `.${wxFmt.toLowerCase()}`;
       }
     }
     
     const pathMatch = url.split('?')[0].match(/\.([^./?#]+)$/i);
     if (pathMatch) {
-      console.log('Found path extension:', pathMatch[1]);
       return `.${pathMatch[1].toLowerCase()}`;
     }
     
-    console.log('Using default extension: .png');
     return '.png';
   } catch (e) {
-    console.error('获取扩展名错误:', e);
     return '.png';
   }
 }
@@ -175,7 +165,6 @@ function getFileExtension(url) {
 // 下载图片
 async function downloadImage(url) {
   try {
-    console.log('Downloading image:', url);
     const extension = getFileExtension(url);
     const filename = generateRandomFileName(extension);
     
@@ -207,26 +196,20 @@ async function downloadImage(url) {
         setTimeout(function() {
           URL.revokeObjectURL(blobUrl);
         }, 100);
-        
-        console.log('Download completed for:', filename);
       } else {
-        console.error('Failed to download image:', xhr.status);
       }
     };
     
     xhr.onerror = function() {
-      console.error('XHR error when downloading image');
     };
     
     xhr.send();
   } catch (error) {
-    console.error('Error downloading image:', error);
   }
 }
 
 // 批量下载多个图片
 async function downloadImages(urls) {
-  console.log('Content script received download request for URLs:', urls);
   
   // 创建下载文件夹
   try {
@@ -237,13 +220,11 @@ async function downloadImages(urls) {
       await new Promise(resolve => setTimeout(resolve, 300));
     }
   } catch (error) {
-    console.error('批量下载错误:', error);
   }
 }
 
 // 扫描页面中的所有图片
 function scanImages() {
-  console.log('扫描页面中的所有图片，URL:', window.location.href);
   document.querySelectorAll('*').forEach(processImage);
 }
 
@@ -256,7 +237,6 @@ function scanWithDelay() {
   const delays = [1000, 3000, 5000];
   delays.forEach(delay => {
     setTimeout(() => {
-      console.log(`延迟 ${delay}ms 扫描页面`);
       scanImages();
     }, delay);
   });
@@ -269,7 +249,6 @@ function scanWithDelay() {
       clearInterval(intervalId);
       return;
     }
-    console.log('定期重新扫描页面');
     scanImages();
   }, 10000);
 }
@@ -309,17 +288,14 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     sendResponse(Array.from(discoveredImages));
   } else if (request.type === 'PING') {
     // 简单的ping响应，用于检测内容脚本是否已注入
-    console.log('收到PING消息，响应以确认内容脚本已注入');
     sendResponse({ success: true });
     return true; // 异步响应
   } else if (request.type === 'PERFORM_DOWNLOAD') {
-    console.log('Content script received PERFORM_DOWNLOAD message');
     downloadImages(request.urls);
     // 返回成功状态，告知background.js下载已处理
     sendResponse({ success: true });
     return true; // 异步响应
   } else if (request.type === 'SCAN_IMAGES') {
-    console.log('重新扫描页面图片...');
     // 清空已发现的图片集合
     discoveredImages.clear();
     // 重新扫描页面

@@ -3,7 +3,6 @@ let imageUrls = new Set();
 
 // 监听来自content script的消息
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
-  console.log('Background received message:', request);
   if (request.type === 'NEW_IMAGE') {
     imageUrls.add(request.url);
     sendResponse({ success: true });
