@@ -35,7 +35,7 @@ async function fetchAndProcessImages() {
     if (statusEl) {
       statusEl.textContent = '正在获取图片...';
     }
-    imageGrid.innerHTML = '<div style="text-align: center; padding: 20px;">正在加载图片...</div>';
+    // imageGrid.innerHTML = '<div style="text-align: center; padding: 20px;">正在加载图片...</div>';
     
     // 先清空后台存储的图片
     await new Promise(resolve => {
@@ -46,6 +46,7 @@ async function fetchAndProcessImages() {
 
     // 只从当前页面获取图片
     const tabImages = await getCurrentTabImages();
+    // console.log('Fetched images from current tab:', tabImages);
     
     // 使用规范化的URL进行去重，并保留最高质量的格式
     const normalizedUrls = new Map(); // 使用Map存储baseUrl到最佳URL的映射
@@ -55,7 +56,7 @@ async function fetchAndProcessImages() {
       if (!url || typeof url !== 'string') return; // 跳过无效URL
       
       // 只处理微信图片
-      if (!url.includes('mmbiz.qpic.cn') && !url.includes('mmsns.qpic.cn')) return;
+      // if (!url.includes('mmbiz.qpic.cn') && !url.includes('mmsns.qpic.cn')) return;
       
       const normalized = normalizeWechatImageUrl(url);
       if (!normalized.baseUrl) return; // 跳过无效的规范化结果
@@ -123,7 +124,7 @@ async function fetchAndProcessImages() {
     if (statusEl) {
       statusEl.textContent = '获取图片时出错: ' + error.message;
     }
-    imageGrid.innerHTML = '<div style="text-align: center; padding: 20px; color: red;">加载图片失败，请刷新页面</div>';
+    // imageGrid.innerHTML = '<div style="text-align: center; padding: 20px; color: red;">加载图片失败，请刷新页面</div>';
   } finally {
     isProcessing = false; // 重置处理标志
   }

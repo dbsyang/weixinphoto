@@ -58,19 +58,19 @@ function processImage(element) {
       }
       
       // 检查所有可能包含图片URL的属性
-      const possibleAttributes = ['data-src', 'data-original', 'data-url', 'data-full-url', 
-        'data-lazy-src', 'data-lazy', 'data-original-src', 'data-srcset',
-        'data-source', 'data-high-res-src', 'load-src', 'lazy-src'
-      ];
+      // const possibleAttributes = ['data-src', 'data-original', 'data-url', 'data-full-url', 
+      //   'data-lazy-src', 'data-lazy', 'data-original-src', 'data-srcset',
+      //   'data-source', 'data-high-res-src', 'load-src', 'lazy-src'
+      // ];
       
-      possibleAttributes.forEach(attr => {
-        const attrValue = element.getAttribute(attr);
-        if (attrValue && attrValue.trim() !== '' && 
-            !attrValue.startsWith('data:image/svg+xml') && 
-            (attrValue.includes('mmbiz.qpic.cn') || attrValue.includes('mmsns.qpic.cn'))) {
-          sendImageToBackground(attrValue);
-        }
-      });
+      // possibleAttributes.forEach(attr => {
+      //   const attrValue = element.getAttribute(attr);
+      //   if (attrValue && attrValue.trim() !== '' && 
+      //       !attrValue.startsWith('data:image/svg+xml') && 
+      //       (attrValue.includes('mmbiz.qpic.cn') || attrValue.includes('mmsns.qpic.cn'))) {
+      //     sendImageToBackground(attrValue);
+      //   }
+      // });
     }
     
     // 检查CANVAS元素
@@ -282,10 +282,11 @@ observer.observe(document.body, {
 // 执行延迟扫描
 scanWithDelay();
 
-// 监听来自popup和background的消息
+// 监听来自background的消息
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   if (request.type === 'GET_IMAGES') {
     sendResponse(Array.from(discoveredImages));
+    console.log('Sent images from content script answer getimages:', Array.from(discoveredImages));
   } else if (request.type === 'PING') {
     // 简单的ping响应，用于检测内容脚本是否已注入
     sendResponse({ success: true });

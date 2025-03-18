@@ -5,6 +5,7 @@ let imageUrls = new Set();
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   if (request.type === 'NEW_IMAGE') {
     imageUrls.add(request.url);
+    console.log('Captured image URL via content script:', request.url);
     sendResponse({ success: true });
     return false; // 同步响应
   } else if (request.type === 'GET_ALL_IMAGES') {
@@ -135,11 +136,12 @@ chrome.runtime.onInstalled.addListener(() => {
 });
 
 // 监听网络请求以捕获图片
-chrome.webRequest.onCompleted.addListener(
-  (details) => {
-    if (details.type === 'image' || details.url.match(/\.(jpg|jpeg|png|gif|webp)($|\?)/i)) {
-      imageUrls.add(details.url);
-    }
-  },
-  { urls: ["<all_urls>"] }
-);
+// chrome.webRequest.onCompleted.addListener(
+//   (details) => {
+//     if (details.type === 'image' || details.url.match(/\.(jpg|jpeg|png|gif|webp)($|\?)/i)) {
+//       imageUrls.add(details.url);
+//       console.log('Captured image URL via background script:', imageUrls);
+//     }
+//   },
+//   { urls: ["<all_urls>"] }
+// );
