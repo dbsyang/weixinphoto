@@ -2,39 +2,14 @@
 let discoveredImages = new Set();
 
 // 规范化微信图片URL
-function normalizeWechatImageUrl(url) {
-  try {
-    if (!url) return '';
-    
-    // 处理微信图片URL
-    if (url.includes('mmbiz.qpic.cn') || url.includes('mmsns.qpic.cn')) {
-      // 提取基础URL（移除所有参数）
-      let baseUrl = url.split('?')[0];
-      
-      // 清理URL中的数字参数（通常是尺寸相关）
-      baseUrl = baseUrl.replace(/\d+$/, '');
-      
-      return baseUrl;
-    }
-    return url;
-  } catch (error) {
-    return url;
-  }
-}
-
-// 发送图片URL到后台脚本
 function sendImageToBackground(imageUrl) {
-  // 规范化URL
-  const normalizedUrl = normalizeWechatImageUrl(imageUrl);
-  
-  // 使用规范化后的URL进行去重
-  if (!discoveredImages.has(normalizedUrl)) {
-    discoveredImages.add(normalizedUrl);
-    chrome.runtime.sendMessage({
-      type: 'NEW_IMAGE',
-      url: imageUrl,
-      normalizedUrl: normalizedUrl
-    });
+  // 使用Set进行去重
+  if (!discoveredImages.has(imageUrl)) {
+    discoveredImages.add(imageUrl);
+    // chrome.runtime.sendMessage({
+    //   type: 'NEW_IMAGE',
+    //   url: imageUrl
+    // });
   }
 }
 
@@ -44,20 +19,42 @@ function isElementVisible(element) {
   return style.display !== 'none' && style.visibility !== 'hidden' && style.opacity !== '0';
 }
 
-// 处理图片元素
+// 处理提取页面节点的图片元素。将节点中包含的图片URL发送到函数sendImageToBackground，函数通过new_image消息发送到后台脚本。
 function processImage(element) {
   try {
+    // 通用属性检查：检查所有元素的所有属性中是否包含HTTP URL且不是JS文件
+    if (element.nodeType === 1) { // 确保是元素节点
+      // 获取元素的所有属性
+      const attributes = element.attributes;
+      if (attributes && attributes.length) {
+        for (let i = 0; i < attributes.length; i++) {
+          const attrValue = attributes[i].value;
+          if (attrValue && typeof attrValue === 'string' && attrValue.includes('http')) {
+            // 提取URL（可能包含在字符串中的多个URL）
+            const urlRegex = /(https?:\/\/[^\s"'<>()]+)/g;
+            const matches = attrValue.match(urlRegex);
+            
+            if (matches) {
+              matches.forEach(url => {
+                // 确保URL不是JS文件
+                if (!url.endsWith('.js')) {
+                  sendImageToBackground(url);
+                }
+              });
+            }
+          }
+        }
+      }
+    }
+    
     // 检查常规IMG标签
     if (element.tagName === 'IMG' && isElementVisible(element)) {
       const src = element.src || element.dataset.src;
-      if (src && src.trim() !== '' && !src.startsWith('data:image/svg+xml')) {
-        // 只处理微信图片
-        if (src.includes('mmbiz.qpic.cn') || src.includes('mmsns.qpic.cn')) {
-          sendImageToBackground(src);
-        }
+      if (src && src.trim() !== '') {
+        sendImageToBackground(src);
       }
       
-      // 检查所有可能包含图片URL的属性
+      // 检查所有可能包含图片URL的属性。
       // const possibleAttributes = ['data-src', 'data-original', 'data-url', 'data-full-url', 
       //   'data-lazy-src', 'data-lazy', 'data-original-src', 'data-srcset',
       //   'data-source', 'data-high-res-src', 'load-src', 'lazy-src'
@@ -286,7 +283,7 @@ scanWithDelay();
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   if (request.type === 'GET_IMAGES') {
     sendResponse(Array.from(discoveredImages));
-    console.log('Sent images from content script answer getimages:', Array.from(discoveredImages));
+    console.log('Sent discoveredImages from content script answer getimages:', Array.from(discoveredImages));
   } else if (request.type === 'PING') {
     // 简单的ping响应，用于检测内容脚本是否已注入
     sendResponse({ success: true });

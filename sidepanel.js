@@ -3,7 +3,7 @@ let allImageData = [];
 let isProcessing = false; // 添加处理状态标志
 let processingTimeout = null; // 用于防抖的timeout
 
-// 防抖函数
+// 防抖函数的效果是：在指定时间内，只执行最后一次调用。
 function debounce(func, wait) {
   return function executedFunction(...args) {
     const later = () => {
@@ -433,7 +433,7 @@ function initializeUI() {
         imageGrid.innerHTML = '<div style="text-align: center; padding: 20px;">正在刷新图片...</div>';
       }
       
-      // 清空后台存储的图片
+      // 清空后台存储的图片，这里会清理background.js中的imageUrls数组
       await new Promise(resolve => {
         chrome.runtime.sendMessage({ type: 'CLEAR_IMAGES' }, () => {
           resolve();
@@ -465,7 +465,7 @@ function initializeUI() {
               });
             });
             
-            // 发送扫描命令
+            // 发送扫描命令，这里会触发content.js中的scanImages函数
             await new Promise(resolve => {
               chrome.tabs.sendMessage(tab.id, { type: 'SCAN_IMAGES' }, (response) => {
                 resolve();
@@ -665,6 +665,7 @@ function getImageDimensions(url) {
     
     // 如果通过URL无法确定格式，尝试通过发送请求判断
     if (format === 'unknown') {
+      console.log('尝试通过HEAD请求获取图片格式', url);
       try {
         // 创建HEAD请求获取Content-Type
         const xhr = new XMLHttpRequest();

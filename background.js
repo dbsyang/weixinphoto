@@ -5,7 +5,7 @@ let imageUrls = new Set();
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   if (request.type === 'NEW_IMAGE') {
     imageUrls.add(request.url);
-    console.log('Captured image URL via content script:', request.url);
+    console.log('Captured NEW_IMAGE URL via content script:', request.url);
     sendResponse({ success: true });
     return false; // 同步响应
   } else if (request.type === 'GET_ALL_IMAGES') {
