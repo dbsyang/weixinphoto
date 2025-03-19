@@ -23,87 +23,96 @@ function isElementVisible(element) {
 function processImage(element) {
   try {
     // 通用属性检查：检查所有元素的所有属性中是否包含HTTP URL且不是JS文件
-    if (element.nodeType === 1) { // 确保是元素节点
-      // 获取元素的所有属性
-      const attributes = element.attributes;
-      if (attributes && attributes.length) {
-        for (let i = 0; i < attributes.length; i++) {
-          const attrValue = attributes[i].value;
-          if (attrValue && typeof attrValue === 'string' && attrValue.includes('http')) {
-            // 提取URL（可能包含在字符串中的多个URL）
-            const urlRegex = /(https?:\/\/[^\s"'<>()]+)/g;
-            const matches = attrValue.match(urlRegex);
+    // 优化：只检查图片相关的属性,先把明确有文件后缀的 URL 进行检测，把不是图片后缀的 URL 跳过
+    //还是不好，太复杂了，效率低下。有什么其他办法吗？
+
+    // if (element.nodeType === 1) { // 确保是元素节点
+    //   // 获取元素的所有属性
+    //   const attributes = element.attributes;
+    //   if (attributes && attributes.length) {
+    //     for (let i = 0; i < attributes.length; i++) {
+    //       const attrValue = attributes[i].value;
+    //       if (attrValue && typeof attrValue === 'string' && attrValue.includes('http')) {
+    //         // 提取URL（可能包含在字符串中的多个URL）
+    //         const urlRegex = /(https?:\/\/[^\s"'<>()]+)(\.[a-zA-Z0-9_-]+)?$/g;
+    //         const matches = attrValue.match(urlRegex);
             
-            if (matches) {
-              matches.forEach(url => {
-                // 确保URL不是JS文件
-                if (!url.endsWith('.js')) {
-                  sendImageToBackground(url);
-                }
-              });
-            }
-          }
-        }
-      }
-    }
+    //         if (matches) {
+    //           matches.forEach(url => {
+    //             // 确保URL不是JS文件
+    //             const ext = url.split('.').pop().toLowerCase();
+    //             if (!(['js', 'css', 'html'].includes(ext))) {
+    //               sendImageToBackground(url);
+    //             }
+    //           });
+    //         }
+    //       }
+    //     }
+    //   }
+    // }
     
     // 检查常规IMG标签
     if (element.tagName === 'IMG' && isElementVisible(element)) {
       const src = element.src || element.dataset.src;
-      if (src && src.trim() !== '') {
+      if (src && src.trim() !== '' && src.startsWith('http')) {
         sendImageToBackground(src);
+        console.log('Sending image to background via img src:', src);
       }
       
       // 检查所有可能包含图片URL的属性。
-      // const possibleAttributes = ['data-src', 'data-original', 'data-url', 'data-full-url', 
-      //   'data-lazy-src', 'data-lazy', 'data-original-src', 'data-srcset',
-      //   'data-source', 'data-high-res-src', 'load-src', 'lazy-src'
-      // ];
+      const possibleAttributes = ['data-src', 'data-original', 'data-url', 'data-full-url', 
+        'data-lazy-src', 'data-lazy', 'data-original-src', 'data-srcset',
+        'data-source', 'data-high-res-src', 'load-src', 'lazy-src'
+      ];
       
-      // possibleAttributes.forEach(attr => {
-      //   const attrValue = element.getAttribute(attr);
-      //   if (attrValue && attrValue.trim() !== '' && 
-      //       !attrValue.startsWith('data:image/svg+xml') && 
-      //       (attrValue.includes('mmbiz.qpic.cn') || attrValue.includes('mmsns.qpic.cn'))) {
-      //     sendImageToBackground(attrValue);
-      //   }
-      // });
+      possibleAttributes.forEach(attr => {
+        const attrValue = element.getAttribute(attr);
+        if (attrValue && attrValue.trim() !== '') {
+          const urlRegex = /^https?:\/\//;
+          const matches = attrValue.match(urlRegex);
+          if (matches) {
+            sendImageToBackground(attrValue);
+            console.log('Sending image to background via attr:', attrValue);
+          }
+        }
+      });
     }
     
     // 检查CANVAS元素
-    if (element.tagName === 'CANVAS' && element.width > 100 && element.height > 100) {
-      try {
-        const dataUrl = element.toDataURL('image/png');
-        if (dataUrl && dataUrl.startsWith('data:image/')) {
-          sendImageToBackground(dataUrl);
-        }
-      } catch (e) {
-        // 忽略跨域Canvas错误
-      }
-    }
+    // if (element.tagName === 'CANVAS' && element.width > 100 && element.height > 100) {
+    //   try {
+    //     const dataUrl = element.toDataURL('image/png');
+    //     if (dataUrl && dataUrl.startsWith('data:image/')) {
+    //       sendImageToBackground(dataUrl);
+    //     }
+    //   } catch (e) {
+    //     // 忽略跨域Canvas错误
+    //   }
+    // }
     
     // 检查VIDEO元素的poster属性
     if (element.tagName === 'VIDEO' && element.poster) {
       sendImageToBackground(element.poster);
+      console.log('Sending image to background via video poster:', element.poster);
     }
     
-    // 处理背景图片
-    const style = window.getComputedStyle(element);
-    const backgroundImage = style.backgroundImage;
-    if (backgroundImage && backgroundImage !== 'none') {
-      const matches = backgroundImage.match(/url\(["']?([^"']*)[""]?\)/g);
-      if (matches) {
-        matches.forEach(match => {
-          const url = match.slice(4, -1).replace(/["']/g, '');
-          if (url && url.trim() !== '' && !url.startsWith('data:image/svg+xml')) {
-            sendImageToBackground(url);
-          }
-        });
-      }
-    }
+    // 处理背景图片，看不懂这块。
+    // const style = window.getComputedStyle(element);
+    // const backgroundImage = style.backgroundImage;
+    // if (backgroundImage && backgroundImage !== 'none') {
+    //   const matches = backgroundImage.match(/url\(["']?([^"']*)[""]?\)/g);
+    //   if (matches) {
+    //     matches.forEach(match => {
+    //       const url = match.slice(4, -1).replace(/["']/g, '');
+    //       if (url && url.trim() !== '' && !url.startsWith('data:image/svg+xml')) {
+    //         sendImageToBackground(url);
+    //       }
+    //     });
+    //   }
+    // }
     
     // 处理CSS中所有可能的图片属性
-    const cssProps = ['backgroundImage', 'content', 'listStyleImage'];
+    const cssProps = ['backgroundImage'];
     cssProps.forEach(prop => {
       const value = style[prop];
       if (value && value !== 'none' && value.includes('url(')) {
@@ -113,6 +122,7 @@ function processImage(element) {
             const url = match.slice(4, -1).replace(/["']/g, '');
             if (url && url.trim() !== '' && !url.startsWith('data:image/svg+xml')) {
               sendImageToBackground(url);
+              console.log('Sending image to background via CSS:', url);
             }
           });
         }
@@ -261,10 +271,6 @@ const observer = new MutationObserver((mutations) => {
         node.querySelectorAll('*').forEach(processImage);
       }
     });
-    // 处理属性变化
-    if (mutation.type === 'attributes') {
-      processImage(mutation.target);
-    }
   });
 });
 
@@ -279,11 +285,11 @@ observer.observe(document.body, {
 // 执行延迟扫描
 scanWithDelay();
 
-// 监听来自background的消息
+// 监听来自background 和sidepanel的消息
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   if (request.type === 'GET_IMAGES') {
     sendResponse(Array.from(discoveredImages));
-    console.log('Sent discoveredImages from content script answer getimages:', Array.from(discoveredImages));
+    // console.log('Sent discoveredImages from content script answer getimages:', Array.from(discoveredImages));
   } else if (request.type === 'PING') {
     // 简单的ping响应，用于检测内容脚本是否已注入
     sendResponse({ success: true });

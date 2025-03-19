@@ -4,16 +4,16 @@ let isProcessing = false; // 添加处理状态标志
 let processingTimeout = null; // 用于防抖的timeout
 
 // 防抖函数的效果是：在指定时间内，只执行最后一次调用。
-function debounce(func, wait) {
-  return function executedFunction(...args) {
-    const later = () => {
-      clearTimeout(processingTimeout);
-      func(...args);
-    };
-    clearTimeout(processingTimeout);
-    processingTimeout = setTimeout(later, wait);
-  };
-}
+// function debounce(func, wait) {
+//   return function executedFunction(...args) {
+//     const later = () => {
+//       clearTimeout(processingTimeout);
+//       func(...args);
+//     };
+//     clearTimeout(processingTimeout);
+//     processingTimeout = setTimeout(later, wait);
+//   };
+// }
 
 // 初始化加载图片
 async function fetchAndProcessImages() {
@@ -46,7 +46,7 @@ async function fetchAndProcessImages() {
 
     // 只从当前页面获取图片
     const tabImages = await getCurrentTabImages();
-    // console.log('Fetched images from current tab:', tabImages);
+    console.log('Fetched images from current tab:', tabImages);
     
     // 使用规范化的URL进行去重，并保留最高质量的格式
     const normalizedUrls = new Map(); // 使用Map存储baseUrl到最佳URL的映射
@@ -131,17 +131,17 @@ async function fetchAndProcessImages() {
 }
 
 // 创建防抖版本的fetchAndProcessImages
-const debouncedFetchAndProcessImages = debounce(fetchAndProcessImages, 1000);
+// const debouncedFetchAndProcessImages = debounce(fetchAndProcessImages, 1000);
 
 // 监听标签页切换事件
 chrome.tabs.onActivated.addListener((activeInfo) => {
-  debouncedFetchAndProcessImages();
+  fetchAndProcessImages();
 });
 
 // 监听标签页更新事件
 chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
   if (changeInfo.status === 'complete' && tab.active) {
-    debouncedFetchAndProcessImages();
+    fetchAndProcessImages();
   }
 });
 
@@ -494,43 +494,43 @@ function initializeUI() {
   updateDownloadButtonText();
   
   // 排序按钮和下拉菜单事件
-  const sortBtn = document.getElementById('sortBtn');
-  const sortDropdown = document.querySelector('.sort-dropdown');
-  const sortItems = document.querySelectorAll('.sort-item');
+  // const sortBtn = document.getElementById('sortBtn');
+  // const sortDropdown = document.querySelector('.sort-dropdown');
+  // const sortItems = document.querySelectorAll('.sort-item');
   
-  if (sortBtn && sortDropdown) {
-    // 默认初始化按钮属性为面积从大到小
-    sortBtn.setAttribute('data-sort', 'area-desc');
-    document.getElementById('currentSortText').textContent = '面积从大到小';
+  // if (sortBtn && sortDropdown) {
+  //   // 默认初始化按钮属性为面积从大到小
+  //   sortBtn.setAttribute('data-sort', 'area-desc');
+  //   document.getElementById('currentSortText').textContent = '面积从大到小';
     
-    // 鼠标悬停显示下拉菜单
-    sortDropdown.addEventListener('mouseenter', () => {
-      document.querySelector('.sort-dropdown-content').classList.add('show');
-    });
+  //   // 鼠标悬停显示下拉菜单
+  //   sortDropdown.addEventListener('mouseenter', () => {
+  //     document.querySelector('.sort-dropdown-content').classList.add('show');
+  //   });
     
-    // 鼠标离开隐藏下拉菜单
-    sortDropdown.addEventListener('mouseleave', () => {
-      document.querySelector('.sort-dropdown-content').classList.remove('show');
-    });
+  //   // 鼠标离开隐藏下拉菜单
+  //   sortDropdown.addEventListener('mouseleave', () => {
+  //     document.querySelector('.sort-dropdown-content').classList.remove('show');
+  //   });
     
-    // 为每个排序选项添加点击事件
-    sortItems.forEach(item => {
-      item.addEventListener('click', () => {
-        const value = item.getAttribute('data-value');
-        const text = item.textContent;
+  //   // 为每个排序选项添加点击事件
+  //   sortItems.forEach(item => {
+  //     item.addEventListener('click', () => {
+  //       const value = item.getAttribute('data-value');
+  //       const text = item.textContent;
         
-        // 更新按钮文本和数据属性
-        document.getElementById('currentSortText').textContent = text;
-        sortBtn.setAttribute('data-sort', value);
+  //       // 更新按钮文本和数据属性
+  //       document.getElementById('currentSortText').textContent = text;
+  //       sortBtn.setAttribute('data-sort', value);
         
-        // 应用排序
-        applyFiltersAndSort();
+  //       // 应用排序
+  //       applyFiltersAndSort();
         
-        // 隐藏下拉菜单
-        document.querySelector('.sort-dropdown-content').classList.remove('show');
-      });
-    });
-  }
+  //       // 隐藏下拉菜单
+  //       document.querySelector('.sort-dropdown-content').classList.remove('show');
+  //     });
+  //   });
+  // }
   
   // 初始化加载图片
   fetchAndProcessImages();
@@ -663,46 +663,8 @@ function getImageDimensions(url) {
       return;
     }
     
-    // 如果通过URL无法确定格式，尝试通过发送请求判断
-    if (format === 'unknown') {
-      console.log('尝试通过HEAD请求获取图片格式', url);
-      try {
-        // 创建HEAD请求获取Content-Type
-        const xhr = new XMLHttpRequest();
-        xhr.open('HEAD', url, true);
-        xhr.onreadystatechange = function() {
-          if (xhr.readyState === 4) {
-            if (xhr.status === 200) {
-              const contentType = xhr.getResponseHeader('Content-Type');
-              if (contentType) {
-                if (contentType.includes('image/jpeg')) {
-                  format = 'JPEG';
-                } else if (contentType.includes('image/png')) {
-                  format = 'PNG';
-                } else if (contentType.includes('image/gif')) {
-                  format = 'GIF';
-                } else if (contentType.includes('image/webp')) {
-                  format = 'WEBP';
-                } else if (contentType.includes('image/svg+xml')) {
-                  format = 'SVG';
-                } else if (contentType.includes('image/')) {
-                  format = contentType.split('/')[1].toUpperCase();
-                }
-              }
-            }
-            
-            // 无论头部请求成功与否，继续加载图片获取尺寸
-            loadImageAndGetDimensions(url, format, resolve);
-          }
-        };
-        xhr.send(null);
-      } catch (e) {
-        loadImageAndGetDimensions(url, format, resolve);
-      }
-    } else {
-      // 如果已经通过URL确定了格式，直接加载图片获取尺寸
-      loadImageAndGetDimensions(url, format, resolve);
-    }
+    // 如果通过URL无法确定格式，直接加载图片获取尺寸
+    loadImageAndGetDimensions(url, format, resolve);
   });
 }
 
@@ -717,7 +679,7 @@ function updateDownloadButtonText() {
   }
 }
 
-// 生成尺寸类型标签
+// 生成尺寸类型标签和格式标签
 function createTags(imageData) {
   // 尺寸标签: 宽x高
   const dimensionsTag = {
@@ -725,7 +687,14 @@ function createTags(imageData) {
     color: 'rgba(97, 97, 97, 0.8)' // 深灰色
   };
   
+  // 格式标签
+  const formatTag = {
+    text: imageData.format,
+    color: 'rgba(97, 97, 97, 0.8)' // 深灰色
+  };
+  
   return [
-    { text: dimensionsTag.text, color: dimensionsTag.color }
+    { text: dimensionsTag.text, color: dimensionsTag.color },
+    { text: formatTag.text, color: formatTag.color }
   ];
 }
